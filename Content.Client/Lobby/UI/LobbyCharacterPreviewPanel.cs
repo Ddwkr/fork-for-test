@@ -14,16 +14,27 @@ using Robust.Client.UserInterface.Controls;
 using Robust.Shared.Map;
 using Robust.Shared.Prototypes;
 using static Robust.Client.UserInterface.Controls.BoxContainer;
+using Content.Shared.Humanoid;
+using Content.Shared.Random.Helpers;
 
 namespace Content.Client.Lobby.UI
 {
+    [RegisterComponent]
+    public class LobbyCom : Component
+    {
+        [DataField("roles")]
+        public List<string> Roles = default!;
+    }
+
     public sealed class LobbyCharacterPreviewPanel : Control
     {
         [Dependency] private readonly IEntityManager _entityManager = default!;
         [Dependency] private readonly IClientPreferencesManager _preferencesManager = default!;
         [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
 
-
+        [Dependency] private readonly ClientPreferencesManager _preferencesManagerall = default!;
+        [Dependency] private readonly SharedHumanoidSystem _hds= default!;
+        [Dependency] private readonly IChatManager _chat = default!;
         private EntityUid? _previewDummy;
         private readonly Label _summaryLabel;
         private readonly BoxContainer _loaded;
@@ -102,6 +113,7 @@ namespace Content.Client.Lobby.UI
 
         public void UpdateUI()
         {
+            bool trig=true;
             if (!_preferencesManager.ServerDataLoaded)
             {
                 _loaded.Visible = false;
@@ -111,26 +123,7 @@ namespace Content.Client.Lobby.UI
             {
                 _loaded.Visible = true;
                 _unloaded.Visible = false;
-                if (_preferencesManager.Preferences?.SelectedCharacter is not HumanoidCharacterProfile selectedCharacter)
-                {
-                    _summaryLabel.Text = string.Empty;
-                }
-                else
-                {
-                    _previewDummy = _entityManager.SpawnEntity(_prototypeManager.Index<SpeciesPrototype>(selectedCharacter.Species).DollPrototype, MapCoordinates.Nullspace);
-                    var viewSouth = MakeSpriteView(_previewDummy.Value, Direction.South);
-                    var viewNorth = MakeSpriteView(_previewDummy.Value, Direction.North);
-                    var viewWest = MakeSpriteView(_previewDummy.Value, Direction.West);
-                    var viewEast = MakeSpriteView(_previewDummy.Value, Direction.East);
-                    _viewBox.DisposeAllChildren();
-                    _viewBox.AddChild(viewSouth);
-                    _viewBox.AddChild(viewNorth);
-                    _viewBox.AddChild(viewWest);
-                    _viewBox.AddChild(viewEast);
-                    _summaryLabel.Text = selectedCharacter.Summary;
-                    EntitySystem.Get<HumanoidAppearanceSystem>().LoadProfile(_previewDummy.Value, selectedCharacter);
-                    GiveDummyJobClothes(_previewDummy.Value, selectedCharacter);
-                }
+                Manipulations();
             }
         }
 
@@ -142,7 +135,7 @@ namespace Content.Client.Lobby.UI
 
             var highPriorityJob = profile.JobPriorities.FirstOrDefault(p => p.Value == JobPriority.High).Key;
 
-            // ReSharper disable once NullCoalescingConditionIsAlwaysNotNullAccordingToAPIContract (what is resharper smoking?)
+            // ReSharper disable once ConstantNullCoalescingCondition
             var job = protoMan.Index<JobPrototype>(highPriorityJob ?? SharedGameTicker.FallbackOverflowJob);
 
             if (job.StartingGear != null && invSystem.TryGetSlots(dummy, out var slots))
@@ -165,5 +158,85 @@ namespace Content.Client.Lobby.UI
                 }
             }
         }
+
+        private bool IsHeadJobPossible(HumanoidCharacterProfile profile){
+            LobbyCom l=new LobbyCom();
+            var highPriorityJob = profile.JobPriorities.FirstOrDefault(p => p.Value == JobPriority.High).Key;
+            if(l.Roles.Contains(highPriorityJob) && _hds.HeadDefaultSpecies.ContainsValue(profile.Species)){
+                return true;
+            }else{
+                return false;
+            }
+        }
+
+        private bool IsJobHead(string job){
+            LobbyCom l=new LobbyCom();
+            if(l.Roles.Contains(job)){
+                return true;
+            }else{
+                return false;
+            }
+        }
+
+        public void ChoiseCharacter(){
+            if(_preferencesManager.Preferences?.SelectedCharacter is not HumanoidCharacterProfile selectedCharacter)
+            {}else{
+            var highPriorityJob = selectedCharacter.JobPriorities.FirstOrDefault(p => p.Value == JobPriority.High).Key ;
+            _previewDummy = _entityManager.SpawnEntity(_prototypeManager.Index<SpeciesPrototype>(selectedCharacter.Species).DollPrototype, MapCoordinates.Nullspace);
+            var viewSouth = MakeSpriteView(_previewDummy.Value, Direction.South);
+            var viewNorth = MakeSpriteView(_previewDummy.Value, Direction.North);
+            var viewWest = MakeSpriteView(_previewDummy.Value, Direction.West);
+            var viewEast = MakeSpriteView(_previewDummy.Value, Direction.East);
+            _viewBox.DisposeAllChildren();
+            _viewBox.AddChild(viewSouth);
+            _viewBox.AddChild(viewNorth);
+            _viewBox.AddChild(viewWest);
+            _viewBox.AddChild(viewEast);
+            _summaryLabel.Text = selectedCharacter.Summary;
+            EntitySystem.Get<HumanoidSystem>().LoadProfile(_previewDummy.Value, selectedCharacter);
+            GiveDummyJobClothes(_previewDummy.Value, selectedCharacter);}
+        }
+
+        private void Manipulations(){
+            bool trig=true;
+            if (_preferencesManager.Preferences?.SelectedCharacter is not HumanoidCharacterProfile selectedCharacter)
+            {
+                _summaryLabel.Text = string.Empty;
+            }
+            else
+            {
+
+                var highPriorityJob = selectedCharacter.JobPriorities.FirstOrDefault(p => p.Value == JobPriority.High).Key;
+                if(IsJobHead(highPriorityJob)){
+                 if(IsHeadJobPossible(selectedCharacter)){
+                  ChoiseCharacter();
+                 }else{
+                 string tes=Loc.GetString("lobby-character-preview-panel-chat-message-for-ui-update")+"\n";
+                 _chat.SendMessage(tes.AsMemory(),ChatSelectChannel.Console);
+                  for(int ch=0; ch<_preferencesManagerall.Preferences?.Characters.Count;ch++){
+                    _preferencesManagerall.SelectCharacter(ch);
+                    if(IsHeadJobPossible(selectedCharacter)){
+                       ChoiseCharacter();
+                       string tes=Loc.GetString("lobby-character-preview-panel-chat-message-for-ui-update-dont-failed");
+                       _chat.SendMessage(tes.AsMemory(),ChatSelectChannel.Console);
+                       trig=false;
+                    }
+                  }
+                  if(trig){
+                    var profiler = HumanoidCharacterProfile.Random();
+                    _preferencesManagerall.SelectCharacter(profiler);
+                    ChoiseCharacter();
+                    string tes=Loc.GetString("lobby-character-preview-panel-chat-message-for-ui-update-failed");
+                    _chat.SendMessage(tes.AsMemory(),ChatSelectChannel.Console);
+                  }
+                  string tes=Loc.GetString("lobby-character-preview-panel-chat-message-possible-species-list");
+                  _chat.SendMessage(tes.AsMemory(),ChatSelectChannel.Console);
+                 }
+                }else{
+                  ChoiseCharacter();
+                }
+            }
+        }
     }
 }
+
